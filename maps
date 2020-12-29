@@ -1,0 +1,87 @@
+library('maps')
+library('mapdata')
+library('mapproj')
+library('ggplot2')
+
+locStation1 <- read.table( text="
+                                   latitude     longitude
+                          Quito  -0.180653 -78.467834
+                          Esmeraldas 0.9500 -79.6667
+                          GUAYAQUIL -2.216111 -80.722778",
+                          header=TRUE, stringsAsFactors=TRUE )
+ecuador <-  map("worldHires","Ecuador", col="gray90", fill=TRUE)
+ggplot()+
+  geom_polygon(data=ecuador,aes(x=long, y=lat,group=group)) +
+  geom_point(data=locStation1,aes(x=longitude,y=latitude),col="red",size=4,alpha=0.9) +
+  geom_text(data=locStation1, aes(longitude-1.0,latitude, label = rownames(locStation1)), size=3) + 
+  ggtitle("Ecuador Bowman lab visit\n November 2017 ") +
+  xlab("Longitude") + ylab("Latitude") +
+  coord_fixed() 
+
+
+#Plot Esmeraldas  ###Add muisne and cayapas point reserves
+locStation2 <- read.table( text="
+                                   latitude     longitude
+                           
+                           Esmeraldas 0.9500 -79.6667",
+                           header=TRUE, stringsAsFactors=TRUE )
+
+
+reser_ecu <- read.table( text="
+                                   latitude     longitude
+                           Cayapas.Mataje  1.28392778 -78.906361
+                           Muisne 0.61161389 -80.020656",
+                           header=TRUE, stringsAsFactors=TRUE )
+
+
+
+
+ecuador <-  map("worldHires","Ecuador", col="ivory", fill=TRUE)
+a1<-ggplot()+
+  geom_polygon(data=ecuador,aes(x=long, y=lat,group=group), col='black', fill='ivory') +
+  geom_point(data=reser_ecu,aes(x=longitude,y=latitude),col="red",size=4,alpha=0.9) +
+  geom_text(data=reser_ecu, aes(longitude-1.0,latitude, label = rownames(reser_ecu)), size=3) + 
+ xlab("Longitude °") + ylab("Latitude °") +
+  coord_fixed()+ theme_classic()+ xlim(-82,-75)+
+theme(panel.border = element_blank(), panel.grid.major = element_line(colour = "gray80"), panel.grid.minor = element_blank())
+a1
+
+pdf('mapESME.pdf',width=3.5,height=3.5)
+a1
+dev.off()
+
+
+
+library(ggmap)
+library(ggplot2)
+library(raster)
+library(maptools)
+
+# first map of south America -----------------------------------------------------
+
+mapa <- borders("world", regions = c("Brazil", "Uruguay", "Argentina", "French Guiana", "Suriname", "Colombia", "Venezuela",
+                                     "Bolivia", "Ecuador", "Chile", "Paraguay", "Peru", "Guyana", "Panama", "Costa Rica", 
+                                     "Nicaragua", "Honduras", "El Salvador", "Belize", "Guatemala", "Mexico", "Trinidad and Tobago",
+                                     "Caribe", "Puerto Rico", "Dominican Republic", "Haiti", "Jamaica", "Cuba", "Bahamas", "Antiles",
+                                     "Dominica", "Saba"), 
+                fill = "grey70", colour = "black")
+
+
+mapa2 <- borders("world", regions = c("Brazil", "Uruguay", "Argentina", "French Guiana", "Suriname", "Colombia", "Venezuela",
+                                     "Bolivia", "Ecuador", "Chile", "Paraguay", "Peru", "Guyana"), 
+                fill = "ivory", colour = "black")
+
+
+
+a2<-ggplot() + mapa2 + theme_bw() + xlab("Longitude °") + ylab("Latitude °") + 
+  theme(panel.border = element_blank(), panel.grid.major = element_line(colour = "gray80"), panel.grid.minor = element_blank())+
+  geom_point(data=locStation2,aes(x=longitude,y=latitude),col="red",size=4, pch=19) +
+  geom_text(data=locStation2, aes(longitude-4.0,latitude+2.5, label = rownames(locStation2)), size=3.5)
+
+#sourcehttps://github.com/nacmarino/Maps/blob/master/Scripts/Rio%20e%20Macae.R
+
+pdf('southamerica.pdf',width=3.3,height=3.3)
+a2
+dev.off()
+
+
