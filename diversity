@@ -1,0 +1,53 @@
+DIVERSITY Plots
+#1 Estimate richness and do boxplot for bacteria
+######################################################################################################
+library(vegan)
+library(ggplot2)
+library(ape)
+library(dplyr)
+library(gplots)
+library(ggpubr)
+library(tidyverse)
+library(phyloseq)
+library("plyr")
+########################################################################################################
+
+#Load my unfilter raw data 
+load('ecu_o.RData')
+load('meta.Rdata')  
+ecu_o<-round(ecu_o, digits=0) # I have to round to calculate diversity 
+#calculate diversity using phyloseq
+ep<-otu_table(ecu_o, taxa_are_rows=F)
+metp<-sample_data(meta)
+eps<-phyloseq(ep,metp)
+#Calculate richness  
+rich = estimate_richness(eps)
+
+## add diversity values to my metadata 
+meta$Shannon<-rich$Shannon
+meta$Simpson<-rich$Simpson
+meta$InvSimpson<-rich$InvSimpson
+#getting the means of Inv simpson 
+inv_mean<-aggregate(meta[, 22], list(meta$Level_2), mean)
+#getting Ci and sd 
+CIINV=(tapply(meta$InvSimpson,meta$Level_2,sd)/(sqrt(tapply(meta$InvSimpson,meta$Level_2,length))))*1.96
+sdinv=(tapply(meta$InvSimpson,meta$Level_2, sd))
+
+#arrange order so it plots alphabetically
+meta$Level_2 <- factor(meta$Level_2, levels = c("high", "intermediate", "low"))
+c<-ggboxplot(meta, x = "Level_2", y = "InvSimpson",
+             scales = "free", fill = "Level_2", 
+             palette = "Dark2", alpha=0.5)+ 
+  labs(x = " ") +
+  stat_compare_means(label.y=144, method='kruskal.test')+ 
+  geom_signif(comparisons=list(c('low',  'high')),map_signif_level=T)+
+  geom_signif(comparisons=list(c('low',  'intermediate')),map_signif_level=T, y_position=122)+
+  geom_signif(comparisons=list(c('intermediate',  'high')),map_signif_level=T, y_position=125.5)+
+  geom_jitter( alpha=0.5,position=position_jitter(0.1)) + theme(legend.position='none')
+c
+#export only c
+pdf('inv_bacteria.pdf',height=5,width=5)
+c
+dev.off()
+
+##Do the samefor archaea 
