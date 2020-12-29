@@ -1,0 +1,178 @@
+######################################################################################################
+library(vegan)
+library(ggplot2)
+library(ape)
+library(dplyr)
+library(gplots)
+library(ggpubr)
+library(tidyverse)
+library(phyloseq)
+library("plyr")
+
+#load transfrom and filter data 
+load('ecu_tr.RData') #fliter and normalized data
+load('meta_of.RData') # meta data
+#Remove outlier (this was identified first time we plot it as well as in the WGCNA analysis 
+meta_f<-meta_f[-c(26,29),]
+ecu_tr<-ecu_tr[-c(26,29),]
+ecu_tr<- ecu_tr[,colSums(ecu_tr != 0) != 0] 
+#Make sure names match 
+all(rownames(meta_f) == rownames(ecu_tr))
+
+#Run an anoism test to see if bacteria differs in the disturbance sites 
+#follow this https://jkzorz.github.io/2019/06/11/ANOSIM-test.html and this
+#https://rstudio-pubs-static.s3.amazonaws.com/268156_d3ea37937f4f4469839ab6fa2c483842.html
+#Calculate bray distance 
+BC.dist<-vegdist(ecu_tr, distance="bray")
+#run
+anosim(BC.dist, meta_f$Level_2, permutations = 1000)
+
+#“The ANOSIM statistic “R” compares the mean of ranked dissimilarities 
+#between groups to the mean of ranked dissimilarities within groups. 
+#An R value close to “1.0” suggests dissimilarity between groups while an R value close 
+#to “0” suggests an even distribution of high and low ranks within and between groups”
+
+#CA, cos2 and top contributors 
+#plot CCA 
+library(ca)
+library(factoextra)
+unique.select.ca <- ca(ecu_tr)
+unique.select.ca.var <- get_eigenvalue(unique.select.ca)
+unique.select.ca.res <- get_ca_col(unique.select.ca)
+samples.x <- unique.select.ca$rowcoord[,1]
+samples.y <- unique.select.ca$rowcoord[,2]
+
+#cos2
+cos.x<- unique.select.ca$colcoord[,1]
+cos.y<-unique.select.ca$colcoord[,2]
+
+dim.1.var <- round(unique.select.ca.var$variance.percent[1], 1)
+dim.2.var <- round(unique.select.ca.var$variance.percent[2], 2)
+envi_color<-c(low='purple',intermediate='orange', high='green', pond='pink')
+plot(samples.x, samples.y,
+     ylab = paste0('Dim 2: ', dim.2.var, '%'),
+     xlab = paste0('Dim 1: ', dim.1.var, '%'),
+     pch = 21,col="black", cex=1, bg=envi_color[meta_f$Level_2])
+
+#Finding the top contributors using cos2
+species.contr <- unique.select.ca.res$cos2[,1:2] #This selects my dim 1 and dim2 
+species.contr.ordered <- species.contr[order(rowSums(species.contr), decreasing = T),]
+species.contr.top <- species.contr.ordered[1:10,]
+
+#Ploting the species contribution 
+#reading the taxa and get the taxa names
+taxa <- read.csv('taxa.txt', header = T, row.names = 1, sep = '\t', as.is = T)
+unique.lab.Row <- sapply(strsplit(colnames(ecu_tr), '_'), '[', 2)
+unique.lab.Row <- taxa[unique.lab.Row, 'taxon'] 
+species.contr.lab <- unique.lab.Row[order(rowSums(abs(species.contr)), decreasing = T)]
+
+#Italic names:from here https://www.biostars.org/p/400381/
+newnames <- lapply((species.contr.lab),
+                   function(x) bquote(italic(.(x))))
+#calculate bray dist of species top contributors
+siteDist <- vegdist(species.contr.top, "bray", diag = TRUE)
+
+library("grid")
+library(pheatmap)
+
+ph<-pheatmap(species.contr.top, col=heat.col, clustering_distance_rows = siteDist,
+             labels_row=as.expression(newnames[1:10]))
+
+#Plot ca using factoextra package
+library('ggsci')
+#CA plot color by disturbance only samples
+
+unique.select.ca$SampleType <- get_variable(meta_f, "Level_2") #This adds a column to my ca so that I can color
+
+#pdf('bacteriaCABigpoint.pdf', height=6, width=6)
+
+a<-fviz_ca_row(unique.select.ca, geom='point') +theme_minimal()
+a<-a+geom_point(aes(color = unique.select.ca$SampleType), size=9, alpha=0.7) 
+
+a<-a + 
+  labs(color="Disturbance") +  
+  theme_classic() + 
+  scale_color_brewer(unique.select.ca$SampleType, palette = "Dark2")+ 
+  ggtitle("CA of Bacteria Communities")+
+  theme(legend.title = element_blank())
+a
+#dev.off()
+
+#plot samples and species with cos2
+#Biplot samples in pink and species in triangle
+fviz_ca_biplot(unique.select.ca,geom='point', col.row='pink', repel = TRUE, col.col='cos2') +
+  scale_color_gradient2(low="white", mid="skyblue",
+                        high="navyblue", midpoint=0.4) + theme_classic() + ggtitle("CA (cos2) of Species composition")
+# The species with highest contribution come from disturbed site but some
+#also come form low disturbed by location of the Cayapas River 
+
+#Plot cos2 for samples
+#pdf('bacteriaCosBigpoint.pdf', height=6, width=6)
+z<-fviz_ca_row(unique.select.ca, col.row="cos2", geom = "point", pointsize=9) +
+  scale_color_gradient2(low="lightblue", mid="lightblue3",
+                        
+                        high="navyblue", midpoint=0.4)+ theme_classic() + ggtitle("CA (cos2) of samples composition")
+z
+dev.off()
+########################################################################
+
+###Plot dim 1 vs Nitrogen
+######################################################################################################
+library(vegan)
+library(ggplot2)
+library(ape)
+library(dplyr)
+library(gplots)
+library(ggpubr)
+library(tidyverse)
+library(phyloseq)
+library("plyr")
+########################################################################################################
+
+
+samples.x <- unique.select.ca$rowcoord[,1]
+samples.y <- unique.select.ca$rowcoord[,2]
+
+meta_ca<-meta_f
+#Add the samples.x and samples.y to the meta
+meta_ca$CAx<-samples.x
+meta_ca$CAy<-samples.y
+
+##########################################################################LOg1 vs DIm1 for supplementary 
+#log ammonia and plot it 
+logN<-log(meta_ca$Ammonia, 10)
+meta_ca$logAmmonia<-logN
+g4<-ggplot(meta_ca, aes(x = CAx, y =logAmmonia)) +
+  geom_point()+
+  stat_smooth(method = "lm",
+              col = "gray",
+              se = FALSE,
+              size = 1)
+g4<-g4+theme_classic() + stat_cor(method = "spearman", label.x.npc = 'left') + 
+  geom_point( color='black')
+g4<- g4+ labs(x ="CA dimension 1", y = "NH4")
+g4
+#Exporting chlorophyll
+pdf('dim1vsammoniaBACTERIA.pdf', height=4, width=4)
+g4
+dev.off()
+######################################################################3
+g5<-ggplot(meta_ca, aes(x = CAy, y =logAmmonia)) +
+  geom_point()+
+  stat_smooth(method = "lm",
+              col = "gray",
+              se = FALSE,
+              size = 1)
+g5<-g5+theme_classic() + stat_cor(method = "spearman", label.x.npc = 'left') + 
+  geom_point( color='black')
+g5<- g5+ labs(x ="CA dimension 2", y = "NH4")
+g5
+
+pdf('dim2vsammoniaBACTERIA.pdf', height=4, width=4)
+g5
+dev.off()
+
+
+
+
+
