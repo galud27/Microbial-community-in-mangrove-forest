@@ -1,0 +1,129 @@
+library(vegan)
+library(ggplot2)
+library(ape)
+library(dplyr)
+library(gplots)
+library(ggpubr)
+library(tidyverse)
+
+enz<- read.csv(file='N_enzyme.csv', header=T, row.names=1, stringsAsFactors = F, check.names=F)
+enz<- as.matrix(enz)
+enz[is.na(enz)]<-0
+meta<-read.csv(file="meta.csv", header= T, row.names=1,  stringsAsFactors = F)
+#let match
+enz_1<-enz[match(rownames(meta), rownames(enz)),]
+
+###Diversity of the enzyme
+library(phyloseq)
+enzy_r=round(enz_1,digit=0)
+em<-otu_table(enzy_r, taxa_are_rows=F)
+meta_rich=estimate_richness(em)
+meta$InvSimpson<-meta_rich$InvSimpson
+
+
+#means
+###Means 
+inv_mean<-aggregate(meta[, 21], list(meta$Level_2), mean)
+#order factors
+meta$Level_2 <- factor(meta$Level_2, levels = c("high", "intermediate", "low"))
+
+
+#for heatmap 
+enz.select <- enz[rowSums(enz) > 100,]
+enz.select <- enz.select[,colSums(enz.select) > 50]
+
+enz_tr<-decostand(enz.select,method = "hellinger")
+
+
+#Read col info file 
+
+col_info<-read.csv(file='col_info.csv', header=T, row.names=1) #there's no outlier here and bolivar samples
+
+
+#Match
+rownames(meta)
+rownames(enz_tr) 
+#Matching to meta 
+enz_ob<-enz_tr[match(rownames(meta),rownames(enz_tr)),] 
+#Matching my data to col_info
+enz_o<-enz_tr[match(rownames(col_info),rownames(enz_tr)),] 
+all(rownames(col_info) == rownames(enz_o))
+
+#Plot
+library("RColorBrewer")
+heat.col <- colorRampPalette(brewer.pal(9, "Blues"))(100)
+siteDist <- vegdist(enz_o, "bray", diag = TRUE) #for samples
+siteDist_e<-vegdist(t(enz_o),'bray') #for taxa 
+
+#Sacling 
+cal_z_score <- function(x){
+  (x - min(x)) / (max(x)-min(x))
+}
+data_subset_norm <- apply(enz_o, 1, cal_z_score) #normalized enz_o, do the distance
+data_subset_norm<-data.matrix(data_subset_norm)
+
+#Plot
+library(pheatmap)
+a<-pheatmap(data_subset_norm, col=heat.col, show_colnames = F, 
+             clustering_distance_cols=siteDist, clustering_distance_rows=siteDist_e,annotation_col=col_info)
+a
+#######################################
+#We see that nitrogenase, nitrate reductase and nitrite reductase are showing interesting 
+#trends. Calulate the means to check significance between treatments 
+
+enz_ob<-as.data.frame(enz_ob) # this needs to be a dataframe for it to work 
+#Adding a column with enzyme data  total of 4 enzymes 
+meta$Nitrogenase.E.1.18.6.1<-enz_ob$Nitrogenase.E.1.18.6.1
+meta$Nitrite.reductase.NADH.E.1.7.1.4<-enz_ob$`Nitrite reductase (NAD(P)H).E.1.7.1.4`
+meta$Nitrate.reductase.E.1.7.99.4<-enz_ob$`Nitrate reductase.E.1.7.99.4`
+
+
+
+####do means for enzyme 
+enzy_mean<-aggregate(meta[, 21:23], list(meta$Level_2), mean)
+#CI andsd 
+CInitogenase=(tapply(meta$Nitrogenase.E.1.18.6.1,meta$Level_2,sd)/(sqrt(tapply(meta$Nitrogenase.E.1.18.6.1,meta$Level_2,length))))*1.96
+CIdeninadh=(tapply(meta$Nitrite.reductase.NADH.E.1.7.1.4,meta$Level_2,sd)/(sqrt(tapply(meta$Nitrite.reductase.NADH.E.1.7.1.4,meta$Level_2,length))))*1.96
+CIdeni=(tapply(meta$Nitrate.reductase.E.1.7.99.4,meta$Level_2,sd)/(sqrt(tapply(meta$Nitrate.reductase.E.1.7.99.4,meta$Level_2,length))))*1.96
+
+#sd
+sd_nitrogenase=(tapply(meta$Nitrogenase.E.1.18.6.1,meta$Level_2, sd))
+sd_deninadh=(tapply(meta$Nitrite.reductase.NADH.E.1.7.1.4,meta$Level_2,sd))
+sddeni=(tapply(meta$Nitrate.reductase.E.1.7.99.4,meta$Level_2,sd))
+
+###############################################################################################
+##Boxplot and Combine the four figures 
+a <- ggboxplot(meta, x = "Level_2", y = "Nitrogenase.E.1.18.6.1",
+               #fill = "Level_2", 
+               #palette = "Dark2", 
+               scales = "free")+ 
+  labs(x = " ") +
+  stat_compare_means(label.y=0.44, method='kruskal.test')+
+  geom_signif(comparisons=list(c('low',  'high')),map_signif_level=T)+
+  geom_signif(comparisons=list(c('low',  'intermediate')),map_signif_level=T, y_position=0.39)+
+  geom_signif(comparisons=list(c('intermediate',  'high')),map_signif_level=T, y_position=0.41)+
+  geom_jitter( alpha=0.5,position=position_jitter(0.1)) #This creates a jitter in the center 
+a
+
+#intermediate and high were not significant
+
+
+b<- ggboxplot(meta, x = "Level_2", y = "Nitrate.reductase.E.1.7.99.4",
+              scales = "free")+ 
+  labs(x = " ") +
+  stat_compare_means(label.y=0.82, method='kruskal.test')+ 
+  geom_signif(comparisons=list(c('low',  'high')),map_signif_level=T)+
+  geom_signif(comparisons=list(c('low',  'intermediate')),map_signif_level=T, y_position=0.7)+
+  geom_signif(comparisons=list(c('intermediate',  'high')),map_signif_level=T, y_position=0.75)+
+  geom_jitter( alpha=0.5,position=position_jitter(0.1)) 
+b
+
+c<-ggboxplot(meta, x = "Level_2", y = "Nitrite.reductase.NADH.E.1.7.1.4",
+             scales = "free")+ 
+  labs(x = " ") +
+  stat_compare_means(label.y=0.5, method='kruskal.test')+ 
+  geom_signif(comparisons=list(c('low',  'high')),map_signif_level=T)+
+  geom_signif(comparisons=list(c('low',  'intermediate')),map_signif_level=T, y_position=0.4)+
+  geom_signif(comparisons=list(c('intermediate',  'high')),map_signif_level=T, y_position=0.42)+
+  geom_jitter( alpha=0.5,position=position_jitter(0.1)) 
+c
