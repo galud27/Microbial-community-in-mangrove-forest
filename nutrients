@@ -1,0 +1,153 @@
+######################################################################################################
+library(vegan)
+library(ggplot2)
+library(ape)
+library(dplyr)
+library(gplots)
+library(ggpubr)
+library(tidyverse)
+library(phyloseq)
+library("plyr")
+########################################################################################################
+
+
+
+meta<-read.csv('meta.csv')
+
+#Remove NA to calculate means
+nutrients_nan<-meta[!is.na(meta$Ammonia), ]
+chl_nan<-meta[!is.na(meta$chl),]
+isotope_nan<-meta[!is.na(meta$X15N),]
+
+#Range for isotopes
+range(meta$X13C, na.rm = T) #but it is not separtae in the 3 systems
+#Table of means 
+nutrient_mean<-aggregate(nutrients_nan[, 7:12], list(nutrients_nan$Level_2), mean)
+chl_mean<-aggregate(chl_nan[, 6], list(chl_nan$Level_2), mean)
+isotope_mean<-aggregate(isotope_nan[13:14], list(isotope_nan$Level_2), mean)
+#isotope_range<-aggregate(isotope_nan[13:14], list(isotope_nan$Level_2), range)
+#CI 
+CIcl=(tapply(chl_nan$chl,chl_nan$Level_2,sd)/(sqrt(tapply(chl_nan$chl,chl_nan$Level_2,length))))*1.96
+CIammonia=(tapply(nutrients_nan$Ammonia,nutrients_nan$Level_2,sd)/(sqrt(tapply(nutrients_nan$Ammonia,nutrients_nan$Level_2,length))))*1.96
+CInitrate=(tapply(nutrients_nan$Nitrate.Nitrite,nutrients_nan$Level_2,sd)/(sqrt(tapply(nutrients_nan$Nitrate.Nitrite,nutrients_nan$Level_2,length))))*1.96
+CIp=(tapply(nutrients_nan$Phosphate,nutrients_nan$Level_2,sd)/(sqrt(tapply(nutrients_nan$Phosphate,nutrients_nan$Level_2,length))))*1.96
+CInstar=(tapply(nutrients_nan$N.,nutrients_nan$Level_2,sd)/(sqrt(tapply(nutrients_nan$N.,nutrients_nan$Level_2,length))))*1.96
+
+#sd
+sd_chl=(tapply(chl_nan$chl,chl_nan$Level_2, sd))
+sdammonia=(tapply(nutrients_nan$Ammonia,nutrients_nan$Level_2,sd))
+sdnitrate=(tapply(nutrients_nan$Nitrate.Nitrite,nutrients_nan$Level_2,sd))
+sdp=(tapply(nutrients_nan$Phosphate,nutrients_nan$Level_2,sd))
+sdnstar=(tapply(nutrients_nan$N.,nutrients_nan$Level_2,sd))
+####################################################################################
+
+#Plot Chlorophyll
+
+chl <- ggboxplot(chl_nan, x = "Level_2", y = "chl",
+                 #fill = "Level_2", 
+                 #palette = "Dark2", 
+                 scales = "free", color='black', fill='navyblue',alpha=0.5) 
+chl<-chl+labs(x = " ") 
+chl<-chl + stat_compare_means(label.y=83, method='kruskal.test')+
+  geom_signif(comparisons=list(c('low',  'high')),map_signif_level=T, y_position=78)+
+  #geom_signif(comparisons=list(c('low',  'intermediate')),map_signif_level=T, y_position=26.34)+
+  geom_signif(comparisons=list(c('intermediate',  'high')),map_signif_level=T, y_position=74.5)+
+  geom_jitter( alpha=0.5,position=position_jitter(0.1)) #This creates a jitter in the center 
+chl<-chl+ylab(expression("Chlorophyll"~"["*mu*L^-1*"]"))
+
+#Exporting chlorophyll
+pdf('chlp.pdf', height=4, width=4)
+chl
+dev.off()
+
+
+#N*
+Nstar <- ggboxplot(meta, x = "Level_2", y = "N.",
+                   #fill = "Level_2", 
+                   #palette = "Dark2", 
+                   scales = "free", color='black', fill='navyblue',alpha='0.5')+ 
+  labs(x = " ") +
+  stat_compare_means(label.y=83, method='kruskal.test')+
+  geom_signif(comparisons=list(c('low',  'high')),map_signif_level=T, y_position=50)+
+  geom_signif(comparisons=list(c('low',  'intermediate')),map_signif_level=T, y_position=22.34)+
+  geom_signif(comparisons=list(c('intermediate',  'high')),map_signif_level=T, y_position=30.5)+
+  geom_jitter( alpha=0.5,position=position_jitter(0.1)) #This creates a jitter in the center 
+Nstar<-Nstar + ylab(expression('N*'))
+#Save NStar 
+pdf('Nstar.pdf', height=4, width=4)
+Nstar
+dev.off()
+
+#N:P plot
+library(viridis)
+pdf('updated_N:Pratiorev_color.pdf', height=4, width=4)
+sp2<-ggplot(meta, aes(x=Phosphate, y=N, color=Ammonia, group=Disturbance))+ 
+  geom_point(aes(shape=Disturbance), size=4)+scale_shape_manual(values=c(17, 15, 8))+theme_classic() + 
+  labs(fill = "Disturbance level")+ geom_abline(aes(intercept=0, slope=16, lty='16:1 Redfield ratio'), col='gray')  
+
+sp2<-sp2+ ylab(expression("N"~"["*mu*M*"]")) + xlab(expression ("P"~"["*mu*M*"]")) 
+sp2+scale_color_viridis(direction = -1, option = "B", "Ammonia")
+dev.off()
+###Isotope figure 
+g6<-ggplot(meta, aes(x = X15N, y =X13C)) +  
+  geom_point()+theme_classic()  + 
+  geom_point(aes(size = Ammonia), color='black')
+g6<-g6+ labs(x ="15N", y = "13C")
+g6
+
+#Saving it 
+#pdf("v5_15Nsv13C.pdf", width=4, height=4)
+g6
+#dev.off()
+
+#plot the genome vs NP ratios 
+#read the genome data 
+genome<-read.csv(file="2019.10.02_ecuador_bacteria.edge_data.csv", header= T, row.names=1,  stringsAsFactors = F)
+
+#read new meta where samples anems are my ID col 
+metaI<-read.csv(file="meta_corrected.csv", header= T, row.names=1,  stringsAsFactors = F)
+
+#order
+genome_o<-genome[match(rownames(metaI),rownames(genome)),] 
+
+#Add the NP ratio to the genome data
+genome_o$NP<-metaI$N.P
+genome_o$Ammonia<-metaI$Ammonia
+#Remove samples that do not have a NP ratio 
+genome_o<-genome_o[!is.na(genome_o$NP), ]
+
+#Now plot scatter for NP and genome size and copies 
+#V5
+
+g4<-ggplot(genome_o, aes(x = n16S.mean, y =NP)) +
+  geom_point()+
+  stat_smooth(method = "lm",
+              col = "gray",
+              se = FALSE,
+              size = 1)
+g4<-g4+theme_classic() + stat_cor(method = "spearman", label.x.npc = 'center') + 
+  geom_point(aes(size = Ammonia), color='gray')
+g4<- g4+ labs(x ="Mean number of 16S copies", y = "N:P ratio")
+
+pdf("v5_16svNp.pdf", width=4, height=4)
+g4
+dev.off()
+######Genome size
+g5<-ggplot(genome_o, aes(x = genome_size.mean, y =NP)) +
+  geom_point()+
+  stat_smooth(method = "lm",
+              col = "gray",
+              se = FALSE,
+              size = 1)
+g5<-g5+theme_classic() + stat_cor(method = "spearman", label.x.npc = 'center') + 
+  geom_point(aes(size = Ammonia), color='gray')
+g5<-g5+ labs(x ="Mean genome size", y = "N:P ratio")
+
+pdf("v5_genomesvNp.pdf", width=4, height=4)
+g5
+dev.off()
+
+
+
+
+
