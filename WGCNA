@@ -1,0 +1,512 @@
+#####Network with salinity  + nutrients + isotopes 
+
+##############################################
+##Running wgcna on unique samples latest run##
+##Goal is to extract modules with high correlation for ammonia and N species 
+
+#######################
+##1 Start and visualizing data
+library(WGCNA) 
+#Read as table 
+OTUs<-read.table("EcuRelAbun.txt",header=T,sep="\t", check.names=FALSE) #I am adding check names False
+
+
+dim(OTUs);
+names(OTUs); 
+
+#Subset
+datExpr0 = as.data.frame((OTUs[,-c(1)]));
+names(datExpr0) = names(OTUs)[-c(1)];
+rownames(datExpr0) = OTUs$Taxa_ID;
+
+##################################################################################
+
+#Check Data for excessive missingness
+gsg = goodSamplesGenes(datExpr0[-1], verbose = 3);
+gsg$allOK
+#TRUE if all OTUs have passed the cut. 
+
+##################################################################################
+#Remove OTUs that had too few occurances
+
+#If false then remove the offenders:
+if (!gsg$allOK)
+{
+  # Optionally, print the gene and sample names that were removed:
+  if (sum(!gsg$goodGenes)>0)
+    printFlush(paste("Removing genes:", paste(names(datExpr0)[!gsg$goodGenes], collapse = ", ")));
+  if (sum(!gsg$goodSamples)>0)
+    printFlush(paste("Removing samples:", paste(rownames(datExpr0)[!gsg$goodSamples], collapse = ", ")));
+  # Remove the offending genes and samples from the data:
+  datExpr0 = datExpr0[gsg$goodSamples, gsg$goodGenes]
+}
+
+##################################################################################
+
+#Cluster samples to see if there are any obvious outliers
+sampleTree = hclust(dist(datExpr0), method = "average");
+# Plot the sample tree: Open a graphic output window of size 12 by 9 inches
+# The user should change the dimensions if the window is too large or too small.
+sizeGrWindow(12,9)
+#pdf(file = "Plots/sampleClustering.pdf", width = 12, height = 9);
+par(cex = 0.6);
+par(mar = c(0,4,2,0))
+#Can't show it. It appears to be too big
+plot(sampleTree, main = "Sample clustering to detect outliers", sub="", xlab="", cex.lab = 1.5,
+     cex.axis = 1.5, cex.main = 2)
+##################################################################################
+#
+
+#Can remove outlier by changing height cut (could also go in and remove it mannually)
+#Plot a line to show the cut
+abline(h = 1.10, col = "red");
+# Determine cluster under the line
+clust = cutreeStatic(sampleTree, cutHeight = 110, minSize = 10)
+table(clust)
+# clust 1 contains the samples we want to keep.
+keepSamples = (clust==1)
+datExpr = datExpr0[keepSamples, ]
+nTaxa = ncol(datExpr)
+nSamples = nrow(datExpr)
+
+##################################################################################
+
+#Now read in trait data and match with expression samples
+traitData = read.csv("meta_f.csv");
+
+dim(traitData)
+names(traitData)
+
+# remove columns that hold information we do not need. Remove all the categorical info
+allTraits = traitData[, -c( 1, 3, 4,5,15,16,17,18,19,20,22)];
+#allTraits = allTraits[, c(2, 11:36) ];
+dim(allTraits)
+names(allTraits)
+
+
+# Form a data frame analogous to expression data that will hold the clinical traits.
+# Used datExpr0 rather than datExpr because we did not do above step.
+OTUSamples = rownames(datExpr0); ##This should give me sample names
+traitRows = match(OTUSamples, allTraits$ID_sequence); #number
+datTraits = allTraits[traitRows, -1]; #col with metadata using
+rownames(datTraits) = allTraits[traitRows, 1];
+collectGarbage()
+##################################################################################
+#Again, used datExpr0 for this because we did not need to do certain above steps
+#Can use any of the datTraits for this step
+
+#Must visualize how traits relate to sample dendogram
+# Re-cluster samples #Intial 6:10
+sampleTree2 = hclust(dist(datExpr), method = "average")
+# Convert traits to a color representation: white means low, red means high, grey means missing entry
+traitColors = numbers2colors(datTraits[1:3], signed = FALSE);
+# Plot the sample dendrogram and the colors underneath.
+plotDendroAndColors(sampleTree2, traitColors,
+                    groupLabels = names(datTraits[1:3]),
+                    main = "Sample dendrogram and trait heatmap")
+#White means a low value and red means a high value. Gray means missing entry.
+
+##################################################################################
+
+#Save
+save(datExpr, datTraits, file = "Natalia-dataInput.RData")
+
+##################################################################################
+
+#End Dendogram Stuff
+
+##################################################################################
+
+#Made a few more dendograms
+
+traitColors = numbers2colors(datTraits$ammonia, signed = FALSE);
+plotDendroAndColors(sampleTree2, traitColors,
+                    groupLabels = names(datTraits),
+                    main = "Sample dendrogram and trait heatmap") ##Weird is labeled as chl instead of ammonia
+
+
+##################################################################################
+##################################################################################
+##2
+
+#Start of network analysis--Do this first no matter what way network is made
+
+# The following setting is important, do not omit.
+options(stringsAsFactors = FALSE);
+# Allow multi-threading within WGCNA. This helps speed up certain calculations.
+# At present this call is necessary for the code to work.
+# Any error here may be ignored but you may want to update WGCNA if you see one.
+# Caution: skip this line if you run RStudio or other third-party R environments.
+# See note above.
+enableWGCNAThreads()
+# Load the data saved in the first part
+lnames = load(file = "Natalia-dataInput.RData");
+#The variable lnames contains the names of loaded variables.
+lnames
+
+##################################################################################
+##################################################################################
+##2b
+
+##USED THIS METHOD##
+
+#This set of sections are a step by step construction of the network and module detection
+
+##################################################################################
+
+
+#Choosing soft-thresholding power: analysis of network topology
+
+# Choose a set of soft-thresholding powers
+powers = c(c(1:10), seq(from = 11, to=30, by=1))
+allowWGCNAThreads()   ### Natalia Added this bcause code was breaking  
+# Call the network topology analysis function
+sft = pickSoftThreshold(datExpr, powerVector = powers, verbose = 5, networkType = "signed")
+# Plot the results:
+sizeGrWindow(9, 5)
+par(mfrow = c(1,2));
+cex1 = 0.9;
+# Scale-free topology fit index as a function of the soft-thresholding power
+plot(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+     xlab="Soft Threshold (power)",ylab="Scale Free Topology Model Fit,signed R^2",type="n",
+     main = paste("Scale independence"));
+text(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+     labels=powers,cex=cex1,col="red");
+# this line corresponds to using an R^2 cut-off of h
+abline(h=0.8,col="red")
+# Mean connectivity as a function of the soft-thresholding power
+plot(sft$fitIndices[,1], sft$fitIndices[,5],
+     xlab="Soft Threshold (power)",ylab="Mean Connectivity", type="n",
+     main = paste("Mean connectivity"))
+text(sft$fitIndices[,1], sft$fitIndices[,5], labels=powers, cex=cex1,col="red")
+
+##################################################################################
+
+##################################################################################
+
+#Calculate the adjacencies, using the soft thresholding power of ___:
+#Added the type = signed part because of recommendations of authors online in faqs
+
+softPower = 8; #becuase of r2 0.8
+adjacency = adjacency(datExpr, power = softPower, type = "signed");
+
+##################################################################################
+#Transform adjacency into Topological Overlap Matrix and calculate corresponding dissimilarity
+#This will minimize effects of noise and spurious associations
+
+# Turn adjacency into topological overlap
+TOM = TOMsimilarity(adjacency, TOMType = "signed");
+dissTOM = 1-TOM
+
+##################################################################################
+
+#Create a dendogram using a hierarchical clustering tree
+# Call the hierarchical clustering function
+TaxaTree = hclust(as.dist(dissTOM), method = "average");
+# Plot the resulting clustering tree (dendrogram)
+sizeGrWindow(12,9)
+plot(TaxaTree, xlab="", sub="", main = "Taxa clustering on TOM-based dissimilarity",
+     labels = FALSE, hang = 0.04);
+
+##################################################################################
+# We like large modules, so we set the minimum module size relatively high (30):
+minModuleSize = 20;
+# Module identification using dynamic tree cut:
+dynamicMods = cutreeDynamic(dendro = TaxaTree, distM = dissTOM,
+                            deepSplit = 2, pamRespectsDendro = FALSE,
+                            minClusterSize = minModuleSize);
+table(dynamicMods)
+##################################################################################
+
+# Convert numeric lables into colors
+dynamicColors = labels2colors(dynamicMods)
+table(dynamicColors)
+# Plot the dendrogram and colors underneath
+sizeGrWindow(8,6)
+plotDendroAndColors(TaxaTree, dynamicColors, "Dynamic Tree Cut",
+                    dendroLabels = FALSE, hang = 0.03,
+                    addGuide = TRUE, guideHang = 0.05,
+                    main = "Gene dendrogram and module colors")
+##################################################################################
+#Quatify co-expression similarity of the entire modules using eigengenes and cluter them on their correlation:
+
+# Calculate eigengenes
+MEList = moduleEigengenes(datExpr, colors = dynamicColors)
+MEs = MEList$eigengenes
+MEs <- MEs[c(1,2,3,4,5,6,7,8)] #Had to do this because it was putting in a gray module full of NAs for some weird reason #before I have 1-5
+# Calculate dissimilarity of module eigengenes--Can fix if change to 1+ rather than 1- because all eigengenes were negative
+MEDiss = 1-cor(MEs);
+# Cluster module eigengenes
+METree = hclust(as.dist(MEDiss), method = "average");
+# Plot the result
+sizeGrWindow(7, 6)
+plot(METree, main = "Clustering of module eigengenes",
+     xlab = "", sub = "")
+##################################################################################
+
+#Chose a height cut of 0.25, corresponding to correlation of 0.75, to merge--so nothing got merged
+MEDissThres = 0.25
+# Plot the cut line into the dendrogram
+abline(h=MEDissThres, col = "red")
+
+# Call an automatic merging function
+merge = mergeCloseModules(datExpr0, dynamicColors, cutHeight = MEDissThres, verbose = 3)
+# The merged module colors
+mergedColors = merge$colors;
+# Eigengenes of the new merged modules:
+mergedMEs = merge$newMEs;
+##################################################################################
+
+sizeGrWindow(12, 9)
+#pdf(file = "Plots/geneDendro-3.pdf", wi = 9, he = 6)
+plotDendroAndColors(TaxaTree, cbind(dynamicColors, mergedColors),
+                    c("Dynamic Tree Cut", "Merged dynamic"),
+                    dendroLabels = FALSE, hang = 0.03,
+                    addGuide = TRUE, guideHang = 0.05)
+#dev.off()
+#no merging 
+##################################################################################
+
+# Rename to moduleColors
+moduleColors = mergedColors
+# Construct numerical labels corresponding to the colors
+colorOrder = c("grey", standardColors(50));
+moduleLabels = match(moduleColors, colorOrder)-1;
+MEs = mergedMEs;
+# Save module colors and labels for use in subsequent parts
+save(MEs, moduleLabels, moduleColors, TaxaTree, file = "Natalia-networkConstruction-stepByStep.RData")
+load('Natalia-networkConstruction-stepByStep.RData')
+####################################################################################
+#Extra Visualization--Can due after modules are assigned
+
+cmd1=cmdscale(as.dist(dissTOM),2)
+par(mfrow=c(1,1)) 
+plot(cmd1, col=as.character(dynamicColors),  main="
+     MDS plot",xlab="Scaling 
+     Dimension 1",ylab="Scaling Dimension 2",
+     cex.axis=1.5,cex.lab=1.5, cex.main=1.5) 
+
+#vs
+cmd1=cmdscale(as.dist(dissTOM),2)
+par(mfrow=c(1,1)) 
+plot(cmd1, col=as.character(mergedColors),  main="
+     MDS plot",xlab="Scaling 
+     Dimension 1",ylab="Scaling Dimension 2",
+     cex.axis=1.5,cex.lab=1.5, cex.main=1.5) 
+
+
+
+##################################################################################
+##################################################################################
+##3
+#Relating modules to external information and IDing important taxa
+
+##################################################################################
+
+#Identify modules that are significantly associated with the measured traits.
+
+#Already have summary profile for each module (eigengene), so we correlate eigengenes with traits and look for sig associations
+# Define numbers of genes and samples
+
+nTaxa = ncol(datExpr);
+nSamples = nrow(datExpr);
+# Recalculate MEs with color labels
+MEs0 = moduleEigengenes(datExpr, moduleColors)$eigengenes
+MEs = orderMEs(MEs0)
+moduleTraitCor = cor(MEs, datTraits, use = "p");
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamples);
+
+#Now visualize it:
+sizeGrWindow(10,6)
+# Will display correlations and their p-values
+textMatrix = paste(signif(moduleTraitCor, 2), "\n(",
+                   signif(moduleTraitPvalue, 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor)
+par(mar = c(6, 8.5, 3, 3));
+# Display the correlation values within a heatmap plot
+pdf('moduletrait.pdf',width=6,height=6)
+
+labeledHeatmap(Matrix = moduleTraitCor,
+               xLabels = names(datTraits),
+               yLabels = names(MEs),
+               ySymbols = names(MEs),
+               colorLabels = FALSE,
+               colors =blueWhiteRed(50),
+               textMatrix = textMatrix,
+               setStdMargins = FALSE,
+               cex.text = 0.5,
+               zlim = c(-1,1),
+               main = paste("Module-trait relationships"))
+#Each row corresponds to a module eigengene, column to a trait. Each cell contains the corresponding correlation and p-vlaue.
+#Table is color-coded by correlation according to the color legend.
+dev.off()
+##################################################################################
+##################################################################################
+
+#This section quantifies associations of individual taxa with out trait of interest
+#Have to look at previous step to figure out what color modules correlate significantly with certain traits
+
+# Define variable weight containing the weight column of datTrait---Replace phosphate for Ammonia
+Nitrogen = as.data.frame(datTraits$nitrogen.species);
+names(Nitrogen) = "Nitrogen"
+# names (colors) of the modules
+modNames = substring(names(MEs), 3) # adding all modules but not gray becuas eit has NA 
+TaxaModuleMembership = as.data.frame(cor(datExpr, MEs, use = "p"));
+MMPvalue = as.data.frame(corPvalueStudent(as.matrix(TaxaModuleMembership), nSamples));
+names(TaxaModuleMembership) = paste("MM", modNames, sep="");
+names(MMPvalue) = paste("p.MM", modNames, sep="");
+TaxaTraitSignificance = as.data.frame(cor(datExpr, Nitrogen, use = "p"));
+GSPvalue = as.data.frame(corPvalueStudent(as.matrix(TaxaTraitSignificance), nSamples));
+names(TaxaTraitSignificance) = paste("GS.", names(Nitrogen), sep="");
+names(GSPvalue) = paste("p.GS.", names(Nitrogen), sep="");
+
+##################################################################################
+module = "yellow"
+column = match(module, modNames);
+moduleTaxa = moduleColors==module;
+
+sizeGrWindow(7, 7);
+par(mfrow = c(1,1));
+pdf('yellow.pdf',width=5,height=5)
+
+verboseScatterplot(abs(TaxaModuleMembership[moduleTaxa, column]),
+                   abs(TaxaTraitSignificance[moduleTaxa, 1]),
+                   xlab = paste("Module Membership in", module, "module"),
+                   ylab = "Taxa significance for Nitrogen",
+                   main = paste("Module membership vs. Taxa significance\n"),
+                   cex.main = 1.2, cex.lab = 1.2, cex.axis = 1.2, col = 'black', bg='black')
+dev.off()
+##################################################################################
+
+#Merge the statistical info from previous section (modules with high assocation with trait of interest--e.g. Temp) with taxa annotation and write a file that summarizes the most important results
+
+names(datExpr)
+names(datExpr)[moduleColors=="pink"]
+
+#Need to figure out proper file for TaxaAnnotation
+annot = read.table("taxa.txt",header=T, sep="\t");
+#annot=read.csv(file='trial_annot.csv', header=T)
+dim(annot)
+names(annot)
+probes = names(datExpr)
+probes2annot = match(probes, annot$X)
+# The following is the number or probes without annotation:
+sum(is.na(probes2annot)) # all taxa is annotated!
+
+#modules will be ordered by their signifcance for weight, with the most signifcant ones to the left.
+
+##################################################################################
+
+# Tempelate the starting data frame
+TaxaInfo0 = data.frame(Taxon = probes,
+                       TaxaSymbol = annot$X[probes2annot],
+                       LinkID = annot$taxon[probes2annot],
+                       moduleColor = moduleColors,
+                       TaxaTraitSignificance,
+                       GSPvalue)
+# Order modules by their significance for weight
+modOrder = order(-abs(cor(MEs, Nitrogen, use = "p")));
+# Add module membership information in the chosen order
+for (mod in 1:ncol(TaxaModuleMembership))
+{
+  oldNames = names(TaxaInfo0)
+  TaxaInfo0 = data.frame(TaxaInfo0, TaxaModuleMembership[, modOrder[mod]],
+                         MMPvalue[, modOrder[mod]]);
+  names(TaxaInfo0) = c(oldNames, paste("MM.", modNames[modOrder[mod]], sep=""),
+                       paste("p.MM.", modNames[modOrder[mod]], sep=""))
+}
+# Order the genes in the geneInfo variable first by module color, then by geneTraitSignificance
+TaxaOrder = order(TaxaInfo0$moduleColor, -abs(TaxaInfo0$GS.Nitrogen));
+TaxaInfo = TaxaInfo0[TaxaOrder, ]
+
+#Write file
+
+write.csv(TaxaInfo, file = "Taxa_genenetwork.csv")
+
+
+
+#####################################################################################
+#####################################################################################
+########################SALINITY####################################################
+#This section quantifies associations of individual taxa with out trait of interest
+#Have to look at previous step to figure out what color modules correlate significantly with certain traits
+
+# Define variable weight containing the weight column of datTrait---Replace phosphate for Ammonia
+Salinity = as.data.frame(datTraits$salinity);
+names(Salinity) = "Salinity"
+# nameSalinitys) of the modules
+modNames = substring(names(MEs), 3) # adding all modules but not gray becuas eit has NA 
+TaxaModuleMembership = as.data.frame(cor(datExpr, MEs, use = "p"));
+MMPvalue = as.data.frame(corPvalueStudent(as.matrix(TaxaModuleMembership), nSamples));
+names(TaxaModuleMembership) = paste("MM", modNames, sep="");
+names(MMPvalue) = paste("p.MM", modNames, sep="");
+TaxaTraitSignificance = as.data.frame(cor(datExpr, Salinity, use = "p"));
+GSPvalue = as.data.frame(corPvalueStudent(as.matrix(TaxaTraitSignificance), nSamples));
+names(TaxaTraitSignificance) = paste("GS.", names(Salinity), sep="");
+names(GSPvalue) = paste("p.GS.", names(Salinity), sep="");
+
+##################################################################################
+module = "red"
+column = match(module, modNames);
+moduleTaxa = moduleColors==module;
+
+sizeGrWindow(7, 7);
+par(mfrow = c(1,1));
+pdf('red.pdf',width=5,height=5)
+
+verboseScatterplot(abs(TaxaModuleMembership[moduleTaxa, column]),
+                   abs(TaxaTraitSignificance[moduleTaxa, 1]),
+                   xlab = paste("Module Membership in", module, "module"),
+                   ylab = "Taxa significance for Salinity",
+                   main = paste("Module membership vs. Taxa significance\n"),
+                   cex.main = 1.2, cex.lab = 1.2, cex.axis = 1.2, col = 'black', bg='black')
+dev.off()
+##################################################################################
+
+#Merge the statistical info from previous section (modules with high assocation with trait of interest--e.g. Temp) with taxa annotation and write a file that summarizes the most important results
+
+names(datExpr)
+names(datExpr)[moduleColors=="red"]
+
+#Need to figure out proper file for TaxaAnnotation
+annot = read.table("taxa.txt",header=T, sep="\t");
+#annot=read.csv(file='trial_annot.csv', header=T)
+dim(annot)
+names(annot)
+probes = names(datExpr)
+probes2annot = match(probes, annot$X)
+# The following is the number or probes without annotation:
+sum(is.na(probes2annot)) # all taxa is annotated!
+
+#modules will be ordered by their signifcance for weight, with the most signifcant ones to the left.
+
+##################################################################################
+
+# Tempelate the starting data frame
+TaxaInfo0 = data.frame(Taxon = probes,
+                       TaxaSymbol = annot$X[probes2annot],
+                       LinkID = annot$taxon[probes2annot],
+                       moduleColor = moduleColors,
+                       TaxaTraitSignificance,
+                       GSPvalue)
+# Order modules by their significance for weight
+modOrder = order(-abs(cor(MEs, Salinity, use = "p")));
+# Add module membership information in the chosen order
+for (mod in 1:ncol(TaxaModuleMembership))
+{
+  oldNames = names(TaxaInfo0)
+  TaxaInfo0 = data.frame(TaxaInfo0, TaxaModuleMembership[, modOrder[mod]],
+                         MMPvalue[, modOrder[mod]]);
+  names(TaxaInfo0) = c(oldNames, paste("MM.", modNames[modOrder[mod]], sep=""),
+                       paste("p.MM.", modNames[modOrder[mod]], sep=""))
+}
+# Order the genes in the geneInfo variable first by module color, then by geneTraitSignificance
+TaxaOrder = order(TaxaInfo0$moduleColor, -abs(TaxaInfo0$GS.Salinity));
+TaxaInfo = TaxaInfo0[TaxaOrder, ]
+
+#Write file
+
+write.csv(TaxaInfo, file = "Taxa_genenetwork_salinity.csv")
+
+
+
