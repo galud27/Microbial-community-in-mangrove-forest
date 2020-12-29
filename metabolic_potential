@@ -1,0 +1,144 @@
+######################################################################################################
+library(vegan)
+library(ggplot2)
+library(ape)
+library(dplyr)
+library(gplots)
+library(ggpubr)
+library(tidyverse)
+library(phyloseq)
+library("plyr")
+########################################################################################################
+
+ecu<- read.csv(file='2019.10.02_ecuador_bacteria.path_tally.csv', header=T, row.names=1, stringsAsFactors = F, check.names=F)
+ecu[is.na(ecu)]<-0
+
+load('meta.Rdata')
+
+#Match
+rownames(meta)
+rownames(ecu) 
+ecu_o<-ecu[match(rownames(meta),rownames(ecu)),] 
+all(rownames(meta) == rownames(ecu_o))
+
+
+#filter
+ecu.select <- ecu_o[rowSums(ecu_o) > 20000,]
+ecu.select <- ecu.select[,colSums(ecu.select) > 10000]
+
+ecu_tr<-decostand(ecu.select,method = "hellinger")
+meta_f<-meta[match(rownames(ecu_tr),rownames(meta)),] 
+
+
+#For meta f remove all NAN
+met_nan<-meta_f[!is.na(meta_f$chl),]
+met_nan<-met_nan[!is.na(met_nan$Ammonia),]
+met_nan[is.na(met_nan)]<-0
+ecu_tr<-ecu_tr[match(rownames(met_nan),rownames(ecu_tr)),] 
+
+#rename col 
+colnames(met_nan)[11] <- "Nstar"
+colnames(met_nan)[6]<-"P"
+colnames(met_nan)[8]<-'NH4'
+
+#read in phyloseq and do the cca in phyloseq package 
+ep<-otu_table(ecu_tr, taxa_are_rows=F)
+metp<-sample_data(met_nan)
+eps<-phyloseq(ep,metp)
+library(ggrepel)
+
+#CCA using the biogeochemistry paprameters  
+#ploting CCA following this tutorial: https://github.com/joey711/phyloseq/issues/274
+cca_ec = ordinate(eps ~ P  + N.P  + Nstar + chl + X15N + X13C +NH4, "CCA")
+
+
+c_plot<-plot_ordination(
+  physeq=eps,
+  ordination=cca_ec,
+  color='Level_2',
+  axes=c(1,2)
+) +
+  
+  geom_point(aes(colour = Level_2), alpha = 0.7, size = 7) + 
+ 
+  scale_color_manual(values = c("#a65628", "red", "#ffae19", "#4daf4a", 
+                                "#1919ff", "darkorchid3", "magenta")
+  )
+# Now add the environmental variables as arrows
+arrowmat1 <- vegan::scores(cca_ec, display = "bp")
+
+# Add labels, make a data.frame
+arrowdf1 <- data.frame(labels = rownames(arrowmat1), arrowmat1)
+
+# Define the arrow aesthetic mapping
+arrow_map1 <- aes(xend = CCA1, 
+                  yend = CCA2, 
+                  x = 0, 
+                  y = 0, 
+                  shape = NULL, 
+                  color = NULL, 
+                  label = labels)
+
+label_map1 <- aes(x = 1.6 * CCA1, 
+                  y = 1.6 * CCA2, 
+                  shape = NULL, 
+                  color = NULL, 
+                  label = labels)
+
+arrowhead1 = arrow(length = unit(0.02, "npc"))
+# Make a new graphic 
+#pdf('metabolic_cca.pdf', height=5, width=5)
+c_plot +
+  geom_segment(
+    mapping = arrow_map1, 
+    size = .5, 
+    data = arrowdf1, 
+    color = "black", 
+    arrow = arrowhead1
+  ) + 
+  geom_text(
+    mapping = label_map1, 
+    size = 3.5,  
+    data = arrowdf1, 
+    show.legend = FALSE
+  ) + theme_classic() + scale_color_brewer("Level_2", palette = "Dark2")+theme(legend.title = element_blank()) 
+
+#dev.off()
+################################################################################################
+#Diversity analysis 
+#estimate richness and plot
+ecu_r=round(ecu_o,digit=0)
+em<-otu_table(ecu_r, taxa_are_rows=F)
+meta_rich=estimate_richness(em)
+
+#####I want to add certain diversity values to my metadata
+
+meta$Shannon<-meta_rich$Shannon
+meta$Simpson<-meta_rich$Simpson
+meta$InvSimpson<-meta_rich$InvSimpson
+
+###Means 
+inv_mean<-aggregate(meta[, 22], list(meta$Level_2), mean)
+
+#get CI and sd
+#getting Ci and sd 
+CIINV=(tapply(meta$InvSimpson,meta$Level_2,sd)/(sqrt(tapply(meta$InvSimpson,meta$Level_2,length))))*1.96
+sdinv=(tapply(meta$InvSimpson,meta$Level_2, sd))
+
+#order factors
+meta$Level_2 <- factor(meta$Level_2, levels = c("high", "intermediate", "low"))
+
+#pdf('metabolic_inv.pdf', height=5, width=5)
+c<-ggboxplot(meta, x = "Level_2", y = "InvSimpson",
+             scales = "free", fill='Level_2',palette='Dark2', alpha=0.5)+ 
+  labs(x = " ") +
+  stat_compare_means(label.y=275, method='kruskal.test')+ 
+  geom_signif(comparisons=list(c('low',  'high')),map_signif_level=T)+
+  geom_signif(comparisons=list(c('low',  'intermediate')),map_signif_level=T, y_position=271)+
+  #geom_signif(comparisons=list(c('intermediate',  'high')),map_signif_level=T, y_position=125.5)+
+  geom_jitter( alpha=0.5,position=position_jitter(0.1)) + theme(legend.position='none')
+c 
+#dev.off()
+
+
+
