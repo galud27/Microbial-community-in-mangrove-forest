@@ -1,4 +1,4 @@
-# Data analysis for microbial community and impact of land use changes 
+# Data analysis for microbial community in mangrove forest
 
 The scripst available here and data generated was used in a recent study: 
 
