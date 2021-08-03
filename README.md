@@ -9,8 +9,8 @@ The analysis for this project relied on the contribution of different bioinforma
 The paprica output can be very helpful when trying to infer metabolic potential eg. paprica generates pathways and enzyme data. Here we used additional scripts that help us process enzyme data to extract Nitrogen enzymes. Here you can find more information on how to process the paprica output: https://github.com/avishekdutta14/downstream_paprica 
 
 The scripts available here will help to perform 16S data analysis:
-Alpha diversity
-Ordination analysis
-Deseq2 differential microbial abundance
-WGCNA network correlation 
-Analysis of environmental data
+Alpha diversity,
+Ordination analysis,
+Deseq2 differential microbial abundance,
+WGCNA network correlation, 
+Analysis of environmental data,
