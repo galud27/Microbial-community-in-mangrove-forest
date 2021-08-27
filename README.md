@@ -4,7 +4,7 @@ The scripts available here and data generated was used in a recent study:
 
 Erazo, N.G. and Bowman, J.S., 2021. Sensitivity of the mangrove-estuarine microbial community to aquaculture effluent: https://doi.org/10.1016/j.isci.2021.102204
 
-You can download the original seqeunces here: 
+You can download the original seqeunces here: https://www.ncbi.nlm.nih.gov/bioproject/?term=PRJNA633714
 
 The analysis for this project relied on the contribution of different bioinformatic pipelines, particularly paprica. Here you can find documentation on paprica and tutorials for microbial community structure and metabolic potential: https://github.com/bowmanjeffs/paprica
 
